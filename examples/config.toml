@@ -1,0 +1,18 @@
+# Copy this file to ~/.config/demo/config.toml and adjust to taste.
+
+theme = "vscode_dark"        # css | dracula | github_light | monokai | vscode_dark
+soft_wrap = false
+show_line_numbers = true
+indent_width = 4
+tab_behavior = "indent"
+highlight_cursor_line = true
+case_sensitive_search = false
+
+# Language servers: language name -> stdio command. Servers are started
+# lazily when a file of that language is activated. Uncomment to enable:
+# [lsp]
+# "python" = ["pyright-langserver", "--stdio"]
+# "rust"   = ["rust-analyzer"]
+# "go"     = ["gopls"]
+
+# plugins_dir = "~/.config/demo/plugins"
