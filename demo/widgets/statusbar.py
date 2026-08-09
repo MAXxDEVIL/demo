@@ -20,10 +20,13 @@ class StatusBar(Static):
         branch: str | None = None,
         dirty: bool = False,
         diagnostics: int = 0,
+        total_lines: int | None = None,
     ) -> None:
         parts: list[object] = []
         parts.append(Text(f"{'*' if modified else ' '} {name}", style="bold"))
-        parts.append(Text(f"  {row}:{col}", style="dim"))
+        parts.append(Text(f"  Ln {row}, Col {col}", style="dim"))
+        if total_lines is not None:
+            parts.append(Text(f" ({total_lines} lines)", style="dim"))
         parts.append(Text(f"  [{language or 'text'}]", style="italic"))
         if branch:
             parts.append(Text(f"  git: {branch}", style="cyan"))

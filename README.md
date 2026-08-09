@@ -12,9 +12,10 @@ you type text and press `Ctrl`-combinations for commands.
   undo/redo, selection, transpose characters, comment toggle, indent/unindent,
   move/duplicate lines, select-next-occurrence.
 - **Multiple buffers** — tabs, `Ctrl+Tab` cycling, `Alt+1..9` jumps, buffer list
-  in the command palette, auto-reload on external changes (never clobbers edits).
-- **Search** — incremental find (`Ctrl+F`) and query replace (`Ctrl+R`), with
-  wrap-around and match counts.
+  in the command palette, close buffers with `Ctrl+Shift+W`, auto-reload on
+  external changes (never clobbers edits).
+- **Search** — live incremental find (`Ctrl+F`) and query replace (`Ctrl+R`),
+  with case-sensitivity toggle, wrap-around and match counts.
 - **Syntax highlighting** — built-in tree-sitter highlighting for Python,
   JavaScript/TypeScript, Rust, Go, JSON, TOML, YAML, Markdown, HTML, CSS, SQL,
   Bash and more. Five color themes.
@@ -54,12 +55,13 @@ Or run without installing: `.venv/bin/python -m demo file.py`.
 | `Alt+N` | Select next occurrence |
 | `Alt+Up` / `Alt+Down` | Move line up / down |
 | `Alt+Shift+D` | Duplicate line |
+| `Alt+Y` | Yank older kill-ring entry (after `Ctrl+U`) |
 
 ### Movement
 
 | Keys | Action |
 | --- | --- |
-| `Ctrl+B` / `Ctrl+F` | Character left / right |
+| `Ctrl+B` / `Arrows` | Character left / right |
 | `Ctrl+P` / `Ctrl+N` | Line up / down |
 | `Ctrl+A` / `Ctrl+E` | Line start / end |
 | `Alt+B` / `Alt+F` | Word left / right |
@@ -76,13 +78,15 @@ Or run without installing: `.venv/bin/python -m demo file.py`.
 | `Ctrl+Shift+S` | Save as |
 | `Ctrl+Tab` | Next buffer |
 | `Ctrl+Shift+Tab` | Previous buffer |
+| `Ctrl+Shift+W` | Close buffer |
 | `Alt+1` … `Alt+9` | Jump to buffer |
 
 ### Search
 
 | Keys | Action |
 | --- | --- |
-| `Ctrl+F` | Find (`Enter` next, `Ctrl+P` previous, `Esc` close) |
+| `Ctrl+F` | Find (live as you type; `Enter` next, `Ctrl+P` previous, `Esc` close) |
+| `Alt+C` | Toggle case-sensitive search (in find bar) |
 | `Ctrl+R` | Query replace (`Enter` replace + next, `Alt+A` replace all) |
 | `Ctrl+G` | Go to line |
 

@@ -1,7 +1,8 @@
 """FindReplaceBar: incremental find and query-replace bar.
 
 Two inputs (find, replace).  The replace input is only shown in replace mode.
-Key handling lives on the inputs so it only applies while the bar is focused.
+Matches are highlighted as you type in the find input; ``Alt+C`` toggles case
+sensitivity; ``Alt+A`` replaces all (after a confirmation dialog).
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ class FindInput(Input):
         Binding("ctrl+f", "next", "Next match"),
         Binding("ctrl+p", "previous", "Previous match"),
         Binding("ctrl+r", "to_replace", "Replace mode"),
+        Binding("alt+c", "toggle_case", "Toggle case sensitivity"),
         Binding("escape", "close", "Close"),
     ]
 
@@ -38,8 +40,15 @@ class FindInput(Input):
     def action_to_replace(self) -> None:
         self._bar().enter_replace_mode()
 
+    def action_toggle_case(self) -> None:
+        self._bar().toggle_case()
+
     def action_close(self) -> None:
         self._bar().close()
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        event.stop()
+        self._bar().on_query_changed()
 
 
 class ReplaceInput(Input):
@@ -100,7 +109,7 @@ class FindReplaceBar(Horizontal):
     def open(self, mode: str, query: str = "") -> None:
         """Show the bar in *mode* ('find' or 'replace') with an initial query."""
         self._mode = mode
-        self._case_sensitive = self.app.config.case_sensitive_search if hasattr(self.app, "config") else False
+        self._case_sensitive = self._config_case_sensitive()
         self.query_one("#find-input").value = query or ""
         self.query_one("#find-input").action_home()
         self.query_one("#find-status").update("")
@@ -121,9 +130,34 @@ class FindReplaceBar(Horizontal):
     def _editor(self):
         return self.app.current_editor  # type: ignore[attr-defined]
 
+    def _config_case_sensitive(self) -> bool:
+        if hasattr(self.app, "config"):
+            return bool(self.app.config.case_sensitive_search)
+        return False
+
     def _update_query(self) -> str:
         self._query = self.query_one("#find-input").value
         return self._query
+
+    def _case_tag(self) -> str:
+        return "Aa" if self._case_sensitive else ""
+
+    def _status_text(self, core: str) -> str:
+        tag = self._case_tag()
+        return f"{core}  [{tag}]" if tag else core
+
+    # ---------------------------------------------------------------- search
+    def on_query_changed(self) -> None:
+        """Live search: jump to the first match while typing."""
+        query = self._update_query()
+        editor = self._editor()
+        if not query or editor is None:
+            self._last_match = None
+            self.query_one("#find-status").update("")
+            return
+        from_index = self._cursor_index(editor)
+        match = self._find(editor, query, from_index, direction=1)
+        self._apply_match(editor, match)
 
     def find_next(self) -> None:
         query = self._update_query()
@@ -156,7 +190,7 @@ class FindReplaceBar(Horizontal):
         self._last_match = match
         status = self.query_one("#find-status")
         if match is None:
-            status.update(f"no matches")
+            status.update(self._status_text("no matches"))
             return
         start, end = match
         editor.selection = Selection(
@@ -169,8 +203,14 @@ class FindReplaceBar(Horizontal):
             if (s, e) == match:
                 break
             order += 1
-        status.update(f"{order}/{self._total}")
+        status.update(self._status_text(f"{order}/{self._total}"))
 
+    def toggle_case(self) -> None:
+        """Flip case sensitivity and re-run the current search."""
+        self._case_sensitive = not self._case_sensitive
+        self.on_query_changed()
+
+    # --------------------------------------------------------------- replace
     def replace_next(self) -> None:
         editor = self._editor()
         if editor is None:
@@ -179,12 +219,11 @@ class FindReplaceBar(Horizontal):
         if not query:
             return
         replacement = self.query_one("#replace-input").value
-        self._case_sensitive = self.app.config.case_sensitive_search if hasattr(self.app, "config") else False
         text = editor.text
         from_index = self._cursor_index(editor) + (0 if self._last_match is None else 1)
         match = search.next_match(text, query, from_index, direction=1, case_sensitive=self._case_sensitive)
         if match is None:
-            self.query_one("#find-status").update("no matches")
+            self.query_one("#find-status").update(self._status_text("no matches"))
             return
         start, end = match
         editor.replace(
@@ -204,18 +243,36 @@ class FindReplaceBar(Horizontal):
         query = self._update_query()
         if not query:
             return
-        replacement = self.query_one("#replace-input").value
-        self._case_sensitive = self.app.config.case_sensitive_search if hasattr(self.app, "config") else False
         matches = search.find_all(editor.text, query, case_sensitive=self._case_sensitive)
+        if not matches:
+            self.query_one("#find-status").update(self._status_text("no matches"))
+            return
+        app = self.app
+        app._dialog_pending = ("replace_all", None)
+        app._show_dialog(
+            "Replace all",
+            f"Replace {len(matches)} occurrence(s) of “{query}”?",
+            [("Replace all", "confirm"), ("Cancel", "cancel")],
+        )
+
+    def confirmed_replace_all(self) -> None:
+        self.display = True
+        editor = self._editor()
+        if editor is None:
+            return
+        replacement = self.query_one("#replace-input").value
+        matches = search.find_all(editor.text, self._query, case_sensitive=self._case_sensitive)
         for start, end in reversed(matches):
             editor.replace(
                 replacement,
                 search.index_to_location(editor.text, start),
                 search.index_to_location(editor.text, end),
             )
-        self.query_one("#find-status").update(f"replaced {len(matches)}")
+        self.query_one("#find-status").update(self._status_text(f"replaced {len(matches)}"))
         self._last_match = None
+        self.query_one("#replace-input").focus()
 
+    # ----------------------------------------------------------------- modes
     def enter_replace_mode(self) -> None:
         self._mode = "replace"
         self.query_one("#replace-label").display = True

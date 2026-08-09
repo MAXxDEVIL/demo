@@ -30,6 +30,7 @@ EDITOR_BINDINGS: list[Binding] = [
     Binding("alt+down", "move_line_down", "Move line down", show=False),
     Binding("alt+shift+d", "duplicate_line", "Duplicate line", show=False),
     Binding("ctrl+shift+z", "redo", "Redo", show=False),
+    Binding("alt+y", "yank_pop", "Cycle kill ring", show=False),
 ]
 
 # Actions forwarded to the app (buffer management, search, navigation).
@@ -41,6 +42,7 @@ APP_BINDINGS: list[Binding] = [
     Binding("ctrl+q", "quit", "Quit"),
     Binding("ctrl+tab", "next_buffer", "Next buffer"),
     Binding("ctrl+shift+tab", "previous_buffer", "Previous buffer"),
+    Binding("ctrl+shift+w", "close_buffer", "Close buffer"),
     Binding("ctrl+f", "find", "Find"),
     Binding("ctrl+r", "replace", "Replace"),
     Binding("ctrl+g", "goto_line", "Go to line"),
@@ -80,6 +82,7 @@ HELP_ROWS: list[tuple[str, str]] = [
     ("Alt+N", "Select next occurrence"),
     ("Alt+Up / Alt+Down", "Move line up / down"),
     ("Alt+Shift+D", "Duplicate line"),
+    ("Alt+Y", "Yank older kill-ring entry (after Ctrl+U)"),
     ("", ""),
     ("Movement", ""),
     ("Ctrl+B / Ctrl+F", "Character left / right"),
@@ -93,11 +96,13 @@ HELP_ROWS: list[tuple[str, str]] = [
     ("Buffers", ""),
     ("Ctrl+Tab", "Next buffer"),
     ("Ctrl+Shift+Tab", "Previous buffer"),
+    ("Ctrl+Shift+W", "Close buffer"),
     ("Alt+1 ... Alt+9", "Jump to buffer"),
     ("", ""),
     ("Search", ""),
-    ("Ctrl+F", "Find (Enter next, Ctrl+P prev, Esc close)"),
-    ("Ctrl+R", "Query replace"),
+    ("Ctrl+F", "Find (incremental; Enter next, Ctrl+P prev, Esc close)"),
+    ("Alt+C", "Toggle case-sensitive search (in find bar)"),
+    ("Ctrl+R", "Query replace (Alt+A replace all)"),
     ("Ctrl+G", "Go to line"),
     ("", ""),
     ("Language server", ""),
@@ -108,3 +113,27 @@ HELP_ROWS: list[tuple[str, str]] = [
     ("Alt+X", "Command palette"),
     ("F1", "This help"),
 ]
+
+
+def binding_for_action(action: str) -> str | None:
+    """Return the footer key shown for *action*, if any (e.g. 'save_file')."""
+    for binding in APP_BINDINGS:
+        if binding.action.split("(")[0] == action and binding.show:
+            return binding.key
+    return None
+
+
+def format_key(key: str) -> str:
+    """Pretty-print a Textual key like ``ctrl+shift+s`` as ``Ctrl+Shift+S``."""
+    parts = key.split("+")
+    names = {
+        "ctrl": "Ctrl",
+        "alt": "Alt",
+        "shift": "Shift",
+        "escape": "Esc",
+        "enter": "Enter",
+        "tab": "Tab",
+        "space": "Space",
+        "backspace": "Backspace",
+    }
+    return "+".join(names.get(part, part.capitalize()) for part in parts)

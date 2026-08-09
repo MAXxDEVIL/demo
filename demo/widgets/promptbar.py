@@ -39,9 +39,13 @@ class PromptBar(Horizontal):
 
     def on_mount(self) -> None:
         self.display = False
+        self._completion_index = 0
+        self._completion_base: str | None = None
 
     def open(self, mode: str, label: str, value: str = "") -> None:
         self._mode = mode
+        self._completion_index = 0
+        self._completion_base = None
         self.query_one("#prompt-label").update(label)
         prompt = self.query_one("#prompt-input")
         prompt.value = value
@@ -69,19 +73,29 @@ class PromptBar(Horizontal):
             self.close()
 
     def complete(self) -> None:
-        """Tab-complete a path from the current directory."""
+        """Tab-complete a path from the current directory, cycling matches."""
         mode = getattr(self, "_mode", "open")
         if mode not in ("open", "save_as"):
             return
         prompt = self.query_one("#prompt-input")
         raw = prompt.value.strip()
         if not raw:
+            self.app.notify("Type a path to complete", severity="warning")  # type: ignore[attr-defined]
             return
         path = Path(raw).expanduser()
         directory = path if path.is_dir() else path.parent
         stem = path.name
-        if directory.exists():
-            matches = [p for p in directory.iterdir() if p.name.startswith(stem)]
-            if len(matches) == 1:
-                prompt.value = str(matches[0])
-                prompt.action_end()
+        if not directory.exists():
+            self.app.notify(f"No such directory: {directory}", severity="warning")  # type: ignore[attr-defined]
+            return
+        matches = sorted(p for p in directory.iterdir() if p.name.startswith(stem))
+        if not matches:
+            self.app.notify("No matches", severity="warning")  # type: ignore[attr-defined]
+            return
+        if self._completion_base != raw:
+            self._completion_index = 0
+            self._completion_base = raw
+        else:
+            self._completion_index = (self._completion_index + 1) % len(matches)
+        prompt.value = str(matches[self._completion_index])
+        prompt.action_end()

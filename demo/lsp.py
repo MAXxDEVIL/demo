@@ -256,6 +256,10 @@ class LanguageServer:
     def did_save(self, uri: str) -> None:
         asyncio.ensure_future(self._notify("textDocument/didSave", {"textDocument": {"uri": uri}}))
 
+    def did_close(self, uri: str) -> None:
+        asyncio.ensure_future(self._notify("textDocument/didClose", {"textDocument": {"uri": uri}}))
+        self.diagnostics.pop(uri, None)
+
     # -------------------------------------------------------------- queries
     async def hover(self, uri: str, position: tuple[int, int]) -> str | None:
         result = await self._request(

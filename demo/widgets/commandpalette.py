@@ -9,6 +9,7 @@ from textual.binding import Binding
 from textual.containers import Vertical
 from textual.widgets import Input, OptionList
 
+from demo.keymap import format_key
 from textual.widgets._option_list import Option
 
 
@@ -65,6 +66,7 @@ class CommandPalette(Vertical):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._commands: dict[str, Callable[[], None]] = {}
+        self._shortcuts: dict[str, str] = {}
         self._rows: list[tuple[str, str, str]] = []
 
     def compose(self) -> ComposeResult:
@@ -75,10 +77,14 @@ class CommandPalette(Vertical):
         self.display = False
         self.border_title = "Command palette"
 
-    def set_commands(self, commands: dict[str, Callable[[], None]]) -> None:
+    def set_commands(self, commands: dict[str, Callable[[], None]], shortcuts: dict[str, str] | None = None) -> None:
         """Register the full command set and rebuild the option list."""
         self._commands = commands
-        self._rows = [(name, "", action) for name, action in commands.items()]
+        self._shortcuts = shortcuts or {}
+        self._rows = [
+            (name, format_key(self._shortcuts[name]) if name in self._shortcuts else "", action)
+            for name, action in commands.items()
+        ]
         self.refresh_options("")
 
     def open(self) -> None:

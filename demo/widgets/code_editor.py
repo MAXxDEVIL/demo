@@ -45,6 +45,10 @@ class CodeEditor(TextArea):
 
     kill_ring: ClassVar[list[str]] = []
 
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self._kill_ring_pos: int | None = None
+
     def _forward(self, action: str, *args: object) -> None:
         """Run *action* on the host app if one is available."""
         app = getattr(self, "app", None)
@@ -110,10 +114,23 @@ class CodeEditor(TextArea):
         """Insert the most recent killed text at the cursor."""
         if not self.kill_ring:
             return
-        self.insert(self.kill_ring[-1])
+        self._kill_ring_pos = len(self.kill_ring) - 1
+        self.insert(self.kill_ring[self._kill_ring_pos])
+
+    def action_yank_pop(self) -> None:
+        """Cycle to older kill-ring entries (Emacs ``C-y M-y``)."""
+        if not self.kill_ring:
+            return
+        if self._kill_ring_pos is None:
+            self._kill_ring_pos = len(self.kill_ring) - 1
+        else:
+            self.undo()  # remove the previous yank before inserting an older entry
+            self._kill_ring_pos = (self._kill_ring_pos - 1) % len(self.kill_ring)
+        self.insert(self.kill_ring[self._kill_ring_pos])
 
     def _kill(self, text: str) -> None:
         self.kill_ring.append(text)
+        self._kill_ring_pos = None
 
     def action_transpose_chars(self) -> None:
         """Swap the two characters around the cursor (Emacs ``C-t``)."""
@@ -304,6 +321,9 @@ class CodeEditor(TextArea):
 
     def action_previous_buffer(self) -> None:
         self._forward("previous_buffer")
+
+    def action_close_buffer(self) -> None:
+        self._forward("close_buffer")
 
     def action_find(self) -> None:
         self._forward("find")

@@ -6,7 +6,7 @@ from pathlib import Path
 
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal
-from textual.widgets import Footer, Header
+from textual.widgets import Footer, Header, Static
 
 from demo.buffers import Buffer
 from demo.config import Config, load_config
@@ -18,6 +18,7 @@ from demo.syntax import detect_language
 from demo.themes import validate_theme
 from demo.widgets.code_editor import CodeEditor
 from demo.widgets.commandpalette import CommandPalette
+from demo.widgets.dialog import Dialog
 from demo.widgets.findbar import FindReplaceBar
 from demo.widgets.helpview import HelpView
 from demo.widgets.promptbar import PromptBar
@@ -39,20 +40,39 @@ class EditorApp(App[None]):
         padding: 0 1;
         background: $panel;
     }
-    #tabs Button {
+    #tabs .tab {
         height: 1;
         min-width: 6;
-        padding: 0 1 0 1;
-        border: none;
+        padding: 0 1;
         background: $panel;
         color: $text;
+        content-align: left middle;
     }
-    #tabs Button:hover {
+    #tabs .tab:hover {
         background: $panel-lighten-2;
     }
-    #tabs Button.active {
+    #tabs .tab.active {
         background: $accent;
         color: $text-accent;
+    }
+    #tabs .tab-close {
+        min-width: 3;
+        padding: 0;
+        margin: 0;
+        border: none;
+        background: transparent;
+        color: $text-muted;
+    }
+    #tabs .tab-close:hover {
+        color: $error;
+        background: $panel-lighten-2;
+    }
+    #hintbar {
+        dock: top;
+        height: 1;
+        padding: 0 2;
+        background: $panel-lighten-1;
+        color: $text-muted;
     }
     #content {
         layout: horizontal;
@@ -126,6 +146,32 @@ class EditorApp(App[None]):
     #help Static {
         padding: 1 2;
     }
+    #dialog {
+        layer: modal;
+        align: center middle;
+        width: 60%;
+        max-width: 90;
+        height: auto;
+        padding: 1 2;
+        border: thick $warning;
+        background: $surface;
+    }
+    #dialog-title {
+        text-style: bold;
+    }
+    #dialog-message {
+        margin-top: 1;
+        max-height: 12;
+    }
+    #dialog-buttons {
+        height: auto;
+        align-horizontal: right;
+        margin-top: 1;
+    }
+    #dialog-buttons Button {
+        margin-left: 1;
+        min-width: 10;
+    }
     """
 
     def __init__(self, files: list[str] | None = None, config: Config | None = None) -> None:
@@ -134,7 +180,8 @@ class EditorApp(App[None]):
         self.startup_files = list(files or [])
         self.buffers: list[Buffer] = []
         self.active_index = 0
-        self._quit_armed = False
+        self._quit_pending = False
+        self._dialog_pending: tuple[str, object] | None = None
         self._diagnostics: dict[str, int] = {}
         self._git_branch: dict[str, str | None] = {}
         self._git_dirty: dict[str, bool] = {}
@@ -147,6 +194,7 @@ class EditorApp(App[None]):
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
         yield TabStrip(id="tabs")
+        yield Static("F1 keybindings · Alt+X commands · Ctrl+T open · Ctrl+O save · Ctrl+Shift+W close", id="hintbar")
         yield Horizontal(id="content")
         yield Footer()
         yield StatusBar(id="statusbar")
@@ -154,6 +202,7 @@ class EditorApp(App[None]):
         yield PromptBar(id="promptbar")
         yield CommandPalette(id="palette")
         yield HelpView(id="help")
+        yield Dialog(title="demo", id="dialog")
 
     def on_mount(self) -> None:
         for widget_id in ("findbar", "promptbar", "palette", "help"):
@@ -240,6 +289,7 @@ class EditorApp(App[None]):
         dirty = self._git_dirty.get(key, False)
         uri = self._uri_for(buffer)
         diagnostics = self._diagnostics.get(uri, 0) if uri else 0
+        total_lines = len(buffer.editor.text.split("\n"))
         self.query_one("#statusbar").set_status(
             name=buffer.name,
             modified=buffer.is_modified,
@@ -249,7 +299,9 @@ class EditorApp(App[None]):
             branch=branch,
             dirty=dirty,
             diagnostics=diagnostics,
+            total_lines=total_lines,
         )
+        self._update_hint()
 
     def _buffer_key(self, buffer: Buffer) -> str:
         return str(buffer.path) if buffer.path is not None else id(buffer)
@@ -411,16 +463,22 @@ class EditorApp(App[None]):
             server.did_save(uri)
 
     def action_save_file_as(self) -> None:
+        if self._dialog_visible:
+            return
         buffer = self.active_buffer
         value = str(buffer.path) if buffer and buffer.path else ""
         self.query_one("#promptbar").open("save_as", "Save as: ", value)
 
     def action_open_file(self) -> None:
+        if self._dialog_visible:
+            return
         buffer = self.active_buffer
         value = str(buffer.path) if buffer and buffer.path else ""
         self.query_one("#promptbar").open("open", "Open: ", value)
 
     def action_goto_line(self) -> None:
+        if self._dialog_visible:
+            return
         buffer = self.active_buffer
         value = str(buffer.editor.selection.end[0] + 1) if buffer else ""
         self.query_one("#promptbar").open("goto", "Go to line: ", value)
@@ -438,6 +496,8 @@ class EditorApp(App[None]):
             self.set_active(number - 1)
 
     def action_find(self) -> None:
+        if self._dialog_visible:
+            return
         editor = self.current_editor
         query = ""
         if editor is not None:
@@ -445,30 +505,153 @@ class EditorApp(App[None]):
         self.query_one("#findbar").open("find", query)
 
     def action_replace(self) -> None:
+        if self._dialog_visible:
+            return
         editor = self.current_editor
         query = editor.selected_text if editor else ""
         self.query_one("#findbar").open("replace", query)
 
     def action_command_palette(self) -> None:
-        self.query_one("#palette").set_commands(self.commands())
+        if self._dialog_visible:
+            return
+        self.query_one("#palette").set_commands(self.commands(), self.command_shortcuts())
         self.query_one("#palette").open()
 
     def action_help(self) -> None:
+        if self._dialog_visible:
+            return
         self.query_one("#help").show()
 
     def action_quit(self) -> None:
-        if any(buffer.is_modified for buffer in self.buffers):
-            if not self._quit_armed:
-                self._quit_armed = True
-                self.notify("Unsaved changes — press Ctrl+X again to quit without saving", severity="warning")
-                self.set_timer(3, self._disarm_quit)
+        if self._dialog_visible:
+            return
+        modified = [b for b in self.buffers if b.is_modified]
+        if not modified:
+            self._quit()
+            return
+        names = "\n".join(f"  • {b.name}" for b in modified)
+        self._dialog_pending = ("quit", None)
+        self._show_dialog(
+            "Unsaved changes",
+            f"Quit? These buffers have unsaved changes:\n{names}",
+            [("Save all & quit", "save_all"), ("Discard all & quit", "discard_all"), ("Cancel", "cancel")],
+        )
+
+    def _quit_callback(self, action: str) -> None:
+        if action == "cancel":
+            return
+        if action == "discard_all":
+            self._quit()
+            return
+        self._quit_pending = True
+        for buffer in self.buffers:
+            if not buffer.is_modified:
+                continue
+            if buffer.path is None:
+                self.set_active(self.buffers.index(buffer))
+                self.action_save_file_as()
                 return
+            try:
+                buffer.save()
+            except OSError as exc:
+                self.notify(f"Could not save {buffer.name}: {exc}", severity="error")
+                self._quit_pending = False
+                return
+        self._quit_pending = False
+        self._quit()
+
+    def _quit(self) -> None:
         for server in self._servers.values():
             server.kill()
         self.exit()
 
-    def _disarm_quit(self) -> None:
-        self._quit_armed = False
+    # --------------------------------------------------------------- buffers
+    def action_close_buffer(self, index: int | None = None) -> None:
+        """Close a buffer, asking to save first if it has unsaved changes."""
+        if self._dialog_visible:
+            return
+        if not self.buffers:
+            return
+        if index is None:
+            index = self.active_index
+        buffer = self.buffers[index]
+        if buffer.is_modified:
+            self._dialog_index = index
+            self._dialog_pending = ("close", index)
+            self._show_dialog(
+                "Unsaved changes",
+                f"Buffer “{buffer.name}” has unsaved changes. Close anyway?",
+                [("Save", "save"), ("Discard", "discard"), ("Cancel", "cancel")],
+            )
+        else:
+            self._close_buffer(index)
+
+    def _close_buffer_callback(self, action: str) -> None:
+        index = self._dialog_index
+        if index is None:
+            return
+        if action == "cancel":
+            return
+        buffer = self.buffers[index]
+        if action == "save":
+            if buffer.path is None:
+                self.set_active(index)
+                self.action_save_file_as()
+                return
+            try:
+                buffer.save()
+            except OSError as exc:
+                self.notify(f"Could not save {buffer.name}: {exc}", severity="error")
+                return
+        self._close_buffer(index)
+
+    def _close_buffer(self, index: int) -> None:
+        buffer = self.buffers.pop(index)
+        server = self._servers.get(buffer.language or "")
+        uri = self._uri_for(buffer)
+        if server is not None and uri is not None:
+            server.did_close(uri)
+        buffer.editor.remove()
+        if not self.buffers:
+            self._open_buffer(None)
+        self.set_active(min(index, len(self.buffers) - 1))
+
+    # ----------------------------------------------------------------- dialog
+    @property
+    def _dialog_visible(self) -> bool:
+        return bool(self.query_one("#dialog").display)
+
+    def _show_dialog(self, title: str, message: str, actions: list[tuple[str, str]]) -> None:
+        for widget_id in ("findbar", "promptbar", "palette", "help"):
+            self.query_one(f"#{widget_id}").display = False
+        self.query_one("#dialog").show(title, message, actions)
+
+    def on_dialog_answered(self, event: Dialog.Answered) -> None:
+        pending = self._dialog_pending
+        self._dialog_pending = None
+        if pending is None:
+            return
+        context, payload = pending
+        if context == "close":
+            self._close_buffer_callback(event.action)
+        elif context == "quit":
+            self._quit_callback(event.action)
+        elif context == "replace_all":
+            if event.action == "confirm":
+                self.query_one("#findbar").confirmed_replace_all()
+
+    def _update_hint(self) -> None:
+        hint = self.query_one("#hintbar")
+        show = (
+            len(self.buffers) == 1
+            and self.active_buffer is not None
+            and self.active_buffer.path is None
+            and self.active_buffer.editor.text == ""
+        )
+        hint.display = show
+
+    def on_tab_strip_tab_closed(self, event: TabStrip.TabClosed) -> None:
+        self.action_close_buffer(event.index)
 
     # ------------------------------------------------------------- palette
     def commands(self) -> dict[str, object]:
@@ -478,6 +661,7 @@ class EditorApp(App[None]):
             "Open file…": self.action_open_file,
             "Save file": self.action_save_file,
             "Save file as…": self.action_save_file_as,
+            "Close buffer": self.action_close_buffer,
             "Find": self.action_find,
             "Replace": self.action_replace,
             "Go to line": self.action_goto_line,
@@ -492,6 +676,20 @@ class EditorApp(App[None]):
         }
         commands.update(self.plugin_commands)
         return commands
+
+    def command_shortcuts(self) -> dict[str, str]:
+        """Map palette command names to their primary keybinding for display."""
+        from demo.keymap import binding_for_action
+
+        shortcuts: dict[str, str] = {}
+        for name, action in self.commands().items():
+            fn = getattr(action, "__name__", "")
+            if not fn.startswith("action_"):
+                continue
+            key = binding_for_action(fn[len("action_"):])
+            if key:
+                shortcuts[name] = key
+        return shortcuts
 
     # -------------------------------------------------------------- prompts
     def open_path(self, value: str) -> None:
@@ -524,6 +722,9 @@ class EditorApp(App[None]):
         self._notify_lsp_save(buffer)
         self._refresh_tabs()
         self._refresh_git()
+        if self._quit_pending and not any(b.is_modified for b in self.buffers):
+            self._quit_pending = False
+            self._quit()
 
     def goto_line_number(self, value: str) -> None:
         self.query_one("#promptbar").close()

@@ -1,4 +1,4 @@
-.venv/
+clear.venv/
 __pycache__/
 *.pyc
 *.egg-info/
